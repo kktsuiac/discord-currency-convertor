@@ -90,6 +90,7 @@ func convert(in, out string) (*FixerResponse, error) {
 			return resp, nil
 		}
 	}
+
 	req, _ := http.NewRequest("GET",
 		fmt.Sprintf("https://api.apilayer.com/fixer/convert?amount=1&from=%s&to=%s", in, out),
 		nil,
@@ -103,8 +104,11 @@ func convert(in, out string) (*FixerResponse, error) {
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	data := FixerResponse{}
 	json.Unmarshal(bodyBytes, &data)
-	cache[in+out] = &data
-	return &data, nil
+	if data.Success {
+		cache[in+out] = &data
+		return &data, nil
+	}
+	return nil, fmt.Errorf("invalid request: %s", req.URL)
 }
 
 func (r *FixerResponse) String() string {
