@@ -7,22 +7,34 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-var BotId string
-var goBot *discordgo.Session
+var (
+	BotId   string
+	client  = &http.Client{}
+	cache   = make(map[string]*FixerResponse)
+	timeout = 10 * time.Minute
+)
 
-var req *http.Request
-var client = &http.Client{}
-
-type Response struct {
-	Result float64 `json:"result"`
+type FixerResponse struct {
+	Success bool    `json:"success`
+	Query   Query   `json:"query"`
+	Info    Info    `json:"info"`
+	Date    string  `json:"date"`
+	Result  float64 `json:"result"`
 }
 
-func init() {
-
+type Info struct {
+	Timestamp int64   `json:"timestamp"`
+	Rate      float64 `json:"rate"`
+}
+type Query struct {
+	From   string  `json:"from"`
+	To     string  `json:"to"`
+	Amount float64 `json:"amount"`
 }
 
 func Start() {
@@ -57,29 +69,49 @@ func messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == BotId {
 		return
 	}
-	fmt.Println(m.Content)
-	if m.Content == "ping" {
-		_, _ = s.ChannelMessageSend(m.ChannelID, "pong")
-	}
+
 	if len(m.Content) == 7 && m.Content[3] == '2' {
 		in := strings.ToUpper(m.Content[:3])
 		out := strings.ToUpper(m.Content[4:])
-		_, _ = s.ChannelMessageSend(m.ChannelID, convert(in, out))
+		resp, err := convert(in, out)
+		var message string
+		if err != nil {
+			message = err.Error()
+		} else {
+			message = resp.String()
+		}
+		_, _ = s.ChannelMessageSend(m.ChannelID, message)
 	}
 }
 
-func convert(in, out string) string {
-
-	req, _ = http.NewRequest("GET",
+func convert(in, out string) (*FixerResponse, error) {
+	if resp, exist := cache[in+out]; exist {
+		if !time.Now().After(time.Unix(resp.Info.Timestamp, 0).Add(timeout)) {
+			return resp, nil
+		}
+	}
+	req, _ := http.NewRequest("GET",
 		fmt.Sprintf("https://api.apilayer.com/fixer/convert?amount=1&from=%s&to=%s", in, out),
 		nil,
 	)
 	req.Header.Set("apikey", os.Getenv("APIKEY"))
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
 
-	resp, _ := client.Do(req)
 	bodyBytes, _ := io.ReadAll(resp.Body)
-	data := Response{}
+	data := FixerResponse{}
 	json.Unmarshal(bodyBytes, &data)
-	return fmt.Sprintf("%s/%s: %f", in, out, data.Result)
+	cache[in+out] = &data
+	return &data, nil
+}
 
+func (r *FixerResponse) String() string {
+	return fmt.Sprintf(`%s/%s: 
+	Rate: %f
+	Last Update: %s`,
+		r.Query.From, r.Query.To,
+		r.Info.Rate,
+		time.Unix(r.Info.Timestamp, 0).Format(time.UnixDate))
 }

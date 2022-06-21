@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"golang-discord-bot/bot" //we will create this later
+	"golang-discord-bot/bot" 
 	"net/http"
 	"os"
 )
